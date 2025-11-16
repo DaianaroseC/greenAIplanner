@@ -1,6 +1,4 @@
-# ===============================================================
-# 🌱 GREENAI PLANNER — MOBILE-FRIENDLY AI FARMING ASSISTANT
-# ===============================================================
+
 
 from flask import Flask, render_template_string, request
 import numpy as np
@@ -10,21 +8,17 @@ from openai import OpenAI
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 
-# Stores cultivation dashboard data
+
 cultivation_data = {}
 
-# ===============================================================
-# CONFIG — API KEYS
-# ===============================================================
+
 OPENAI_API_KEY = "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"   # <-- PUT YOUR REAL KEY HERE
 WEATHER_API_KEY = "64ae4241bd73e5efabff5110e3a0526d"
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-# ===============================================================
-# TRAIN ML MODEL FOR 10 CROPS
-# ===============================================================
+
 def train_crop_model():
     data = {
         'N':      [90, 120, 50, 75, 55, 60, 40, 80, 65, 85],
@@ -59,9 +53,7 @@ def train_crop_model():
 model, df = train_crop_model()
 
 
-# ===============================================================
-# Predict crop
-# ===============================================================
+
 def predict_crop(N, P, K, temp, humidity, ph):
     X_test = np.array([[N, P, K, temp, humidity, ph]])
     pred = model.predict(X_test)
@@ -69,9 +61,7 @@ def predict_crop(N, P, K, temp, humidity, ph):
     return crop_list[np.argmax(pred)]
 
 
-# ===============================================================
-# Weather API
-# ===============================================================
+
 def get_weather(city):
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
     try:
@@ -85,9 +75,7 @@ def get_weather(city):
     return data["main"]["temp"], data["main"]["humidity"]
 
 
-# ===============================================================
-# Fertilizer calculator
-# ===============================================================
+
 def calculate_fertilizer(n_required, p_required, k_required):
     urea = n_required / 0.46
     dap = p_required / 0.46
@@ -95,9 +83,7 @@ def calculate_fertilizer(n_required, p_required, k_required):
     return round(urea, 2), round(dap, 2), round(mop, 2)
 
 
-# ===============================================================
-# APP + UI
-# ===============================================================
+
 app = Flask(__name__)
 
 HTML_PAGE = """
@@ -203,7 +189,7 @@ async function calcFertilizer() {
 """
 
 
-# ============================ HOME ROUTE ============================
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     crop_result = None
@@ -225,7 +211,7 @@ def home():
 
 
 
-# ============================ ADD DATA PAGE ============================
+
 @app.route("/add_data", methods=["GET", "POST"])
 def add_data():
     message = ""
@@ -257,7 +243,7 @@ def add_data():
 
 
 
-# ============================ DASHBOARD ============================
+
 @app.route("/dashboard")
 def dashboard():
     crops = list(cultivation_data.keys())
@@ -301,7 +287,7 @@ def dashboard():
 
 
 
-# ============================ AI CHAT ============================
+
 @app.route("/ask", methods=["POST"])
 def ask_ai():
     question = request.form.get("question", "")
@@ -317,7 +303,7 @@ def ask_ai():
 
 
 
-# ============================ FERTILIZER ENDPOINT ============================
+
 @app.route("/fertilizer", methods=["POST"])
 def fertilizer():
     try:
@@ -331,7 +317,7 @@ def fertilizer():
 
 
 
-# ============================ RUN APP ============================
+
 if __name__ == "__main__":
     print("🌱 GreenAI Planner running at http://127.0.0.1:5000")
     app.run(debug=True)
