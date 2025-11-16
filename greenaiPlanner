@@ -1,0 +1,337 @@
+# ===============================================================
+# 🌱 GREENAI PLANNER — MOBILE-FRIENDLY AI FARMING ASSISTANT
+# ===============================================================
+
+from flask import Flask, render_template_string, request
+import numpy as np
+import pandas as pd
+import requests
+from openai import OpenAI
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+
+# Stores cultivation dashboard data
+cultivation_data = {}
+
+# ===============================================================
+# CONFIG — API KEYS
+# ===============================================================
+OPENAI_API_KEY = "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"   # <-- PUT YOUR REAL KEY HERE
+WEATHER_API_KEY = "64ae4241bd73e5efabff5110e3a0526d"
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# ===============================================================
+# TRAIN ML MODEL FOR 10 CROPS
+# ===============================================================
+def train_crop_model():
+    data = {
+        'N':      [90, 120, 50, 75, 55, 60, 40, 80, 65, 85],
+        'P':      [40, 55, 22, 30, 25, 30, 20, 35, 28, 32],
+        'K':      [38, 45, 18, 25, 20, 25, 15, 30, 35, 40],
+        'temp':   [26, 29, 34, 30, 20, 28, 32, 27, 30, 33],
+        'humidity':[80, 65, 92, 70, 75, 60, 85, 78, 68, 72],
+        'ph':     [6.5, 7.0, 5.8, 6.3, 5.5, 6.0, 6.2, 6.8, 6.4, 7.2],
+        'crop': [
+            'rice', 'wheat', 'maize', 'sugarcane',
+            'potato', 'tomato', 'groundnut', 'banana',
+            'coconut', 'cotton'
+        ]
+    }
+
+    df = pd.DataFrame(data)
+    X = df[['N', 'P', 'K', 'temp', 'humidity', 'ph']].values
+    y = pd.get_dummies(df['crop']).values
+
+    model = Sequential([
+        Dense(12, activation='relu', input_dim=6),
+        Dense(10, activation='relu'),
+        Dense(y.shape[1], activation='softmax')
+    ])
+
+    model.compile(optimizer='adam', loss='categorical_crossentropy')
+    model.fit(X, y, epochs=60, verbose=0)
+
+    return model, df
+
+
+model, df = train_crop_model()
+
+
+# ===============================================================
+# Predict crop
+# ===============================================================
+def predict_crop(N, P, K, temp, humidity, ph):
+    X_test = np.array([[N, P, K, temp, humidity, ph]])
+    pred = model.predict(X_test)
+    crop_list = df['crop'].unique()
+    return crop_list[np.argmax(pred)]
+
+
+# ===============================================================
+# Weather API
+# ===============================================================
+def get_weather(city):
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
+    try:
+        data = requests.get(url, timeout=10).json()
+    except:
+        return None, None
+
+    if "main" not in data:
+        return None, None
+
+    return data["main"]["temp"], data["main"]["humidity"]
+
+
+# ===============================================================
+# Fertilizer calculator
+# ===============================================================
+def calculate_fertilizer(n_required, p_required, k_required):
+    urea = n_required / 0.46
+    dap = p_required / 0.46
+    mop = k_required / 0.60
+    return round(urea, 2), round(dap, 2), round(mop, 2)
+
+
+# ===============================================================
+# APP + UI
+# ===============================================================
+app = Flask(__name__)
+
+HTML_PAGE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🌱 GreenAI Planner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+input {
+    box-sizing: border-box;
+}
+input {
+    width: 100%;
+    padding: 14px;
+    margin: 8px 0;
+    border-radius: 8px;
+    border: 1px solid #bbb;
+    font-size: 16px;
+    box-sizing: border-box; /* FIXES overflow */
+}
+
+    body { font-family: Arial; background: #eaffea; padding: 10px; margin: 0; }
+    h1, h3 { text-align: center; margin: 10px 0; }
+    .box { background: white; padding: 20px; margin: 10px auto;
+           border-radius: 12px; max-width: 450px; box-shadow: 0 0 10px #aaa; }
+    input, button { width: 100%; padding: 14px; margin: 8px 0;
+                    border-radius: 8px; font-size: 16px; }
+    button { background: #00a82d; color: white; border: none; cursor: pointer; font-weight: bold; }
+    button:hover { background: #008f26; }
+    #response, #fert_output { margin-top: 15px; font-size: 17px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<h1>🌾 GREENAI PLANNER</h1>
+<h3>AI for Smart Farming</h3>
+
+<div class="box">
+    <button onclick="window.location.href='/dashboard'">📊 Dashboard</button>
+    <button onclick="window.location.href='/add_data'">➕ Add Cultivation Data</button>
+</div>
+
+<div class="box">
+    <form method="POST">
+        <input type="text" name="city" placeholder="Enter City" required>
+        <input type="number" name="N" placeholder="Nitrogen (N)" required>
+        <input type="number" name="P" placeholder="Phosphorus (P)" required>
+        <input type="number" name="K" placeholder="Potassium (K)" required>
+        <input type="number" step="0.1" name="ph" placeholder="Soil pH" required>
+
+        <button type="submit">🌱 Suggest Best Crop</button>
+    </form>
+
+    {% if result %}
+        <h2 style="text-align:center;">🌾 Best Crop: {{ result }}</h2>
+    {% endif %}
+</div>
+
+<div class="box">
+    <h3>💬 Ask AI</h3>
+    <input type="text" id="question" placeholder="Ask about soil, crops, weather...">
+    <button onclick="askAI()">Ask</button>
+    <div id="response"></div>
+</div>
+
+<div class="box">
+    <h3>🧮 Fertilizer Calculator</h3>
+    <input type="number" id="n_val" placeholder="Nitrogen (N) kg" />
+    <input type="number" id="p_val" placeholder="Phosphorus (P) kg" />
+    <input type="number" id="k_val" placeholder="Potassium (K) kg" />
+    <button onclick="calcFertilizer()">Calculate</button>
+    <div id="fert_output"></div>
+</div>
+
+<script>
+async function askAI() {
+    let q = document.getElementById("question").value;
+    let r = await fetch("/ask", {
+        method: "POST",
+        headers: {"Content-Type":"application/x-www-form-urlencoded"},
+        body: "question=" + encodeURIComponent(q)
+    });
+    document.getElementById("response").innerText = (await r.json()).answer;
+}
+
+async function calcFertilizer() {
+    let data = await fetch("/fertilizer", {
+        method:"POST",
+        headers:{"Content-Type":"application/x-www-form-urlencoded"},
+        body:"n_val="+n_val.value+"&p_val="+p_val.value+"&k_val="+k_val.value
+    }).then(r=>r.json());
+    if (data.error) { fert_output.innerText="Error: "+data.error; return; }
+    fert_output.innerHTML =
+        "Urea: "+data.urea+"<br>" +
+        "DAP: "+data.dap+"<br>" +
+        "MOP: "+data.mop;
+}
+</script>
+
+</body>
+</html>
+"""
+
+
+# ============================ HOME ROUTE ============================
+@app.route("/", methods=["GET", "POST"])
+def home():
+    crop_result = None
+    if request.method == "POST":
+        city = request.form["city"]
+
+        N = int(request.form["N"])
+        P = int(request.form["P"])
+        K = int(request.form["K"])
+        ph = float(request.form["ph"])
+
+        temp, humidity = get_weather(city)
+        if temp is None:
+            crop_result = "❌ Weather not found."
+        else:
+            crop_result = predict_crop(N, P, K, temp, humidity, ph)
+
+    return render_template_string(HTML_PAGE, result=crop_result)
+
+
+
+# ============================ ADD DATA PAGE ============================
+@app.route("/add_data", methods=["GET", "POST"])
+def add_data():
+    message = ""
+
+    if request.method == "POST":
+        crop = request.form.get("crop", "").strip()
+        amount = int(request.form.get("amount", 0))
+
+        if crop and amount > 0:
+            cultivation_data[crop] = cultivation_data.get(crop, 0) + amount
+            message = f"✔ Added {amount} for {crop}"
+        else:
+            message = "Invalid input."
+
+    page = """
+    <html><body style='font-family:Arial;background:#f1fff1;padding:20px;'>
+    <div style='max-width:450px;margin:auto;background:white;padding:20px;border-radius:12px;'>
+    <h2>➕ Add Cultivation Data</h2>
+    <p style='color:green;'>{{message}}</p>
+    <form method='POST'>
+    <input type='text' name='crop' placeholder='Crop Name' required>
+    <input type='number' name='amount' placeholder='Amount' required>
+    <button type='submit'>Submit</button></form>
+    <button onclick="window.location.href='/dashboard'">Dashboard</button>
+    <button onclick="window.location.href='/'">Home</button>
+    </div></body></html>
+    """
+    return render_template_string(page, message=message)
+
+
+
+# ============================ DASHBOARD ============================
+@app.route("/dashboard")
+def dashboard():
+    crops = list(cultivation_data.keys())
+    counts = list(cultivation_data.values())
+
+    page = """
+    <html>
+    <head>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    </head>
+    <body style="font-family:Arial;background:#f1fff1;padding:20px;">
+    <div style="max-width:500px;margin:auto;background:white;padding:20px;border-radius:12px;">
+    <h2>📊 Cultivation Dashboard</h2>
+
+    {% if crops %}
+    <canvas id="chart"></canvas>
+    {% else %}
+    <p>No data added.</p>
+    {% endif %}
+
+    <button onclick="window.location.href='/add_data'">Add Data</button>
+    <button onclick="window.location.href='/'">Home</button>
+    </div>
+
+    {% if crops %}
+    <script>
+    new Chart(document.getElementById('chart'), {
+        type:'bar',
+        data:{
+            labels: {{ crops|tojson }},
+            datasets:[{label:"Cultivation", data:{{ counts|tojson }}, borderWidth:1}]
+        },
+        options:{responsive:true,scales:{y:{beginAtZero:true}}}
+    });
+    </script>
+    {% endif %}
+    </body></html>
+    """
+
+    return render_template_string(page, crops=crops, counts=counts)
+
+
+
+# ============================ AI CHAT ============================
+@app.route("/ask", methods=["POST"])
+def ask_ai():
+    question = request.form.get("question", "")
+    try:
+        r = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":question}]
+        )
+        answer = r.choices[0].message.content
+    except Exception as e:
+        answer = "Error: " + str(e)
+    return {"answer": answer}
+
+
+
+# ============================ FERTILIZER ENDPOINT ============================
+@app.route("/fertilizer", methods=["POST"])
+def fertilizer():
+    try:
+        n = float(request.form.get("n_val", 0))
+        p = float(request.form.get("p_val", 0))
+        k = float(request.form.get("k_val", 0))
+        urea, dap, mop = calculate_fertilizer(n, p, k)
+        return {"urea": f"{urea} kg", "dap": f"{dap} kg", "mop": f"{mop} kg"}
+    except:
+        return {"error": "Invalid input"}
+
+
+
+# ============================ RUN APP ============================
+if __name__ == "__main__":
+    print("🌱 GreenAI Planner running at http://127.0.0.1:5000")
+    app.run(debug=True)
